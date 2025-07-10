@@ -1,101 +1,198 @@
-import anyio
+import contextlib
+from collections.abc import AsyncIterator
+import os, io
 import click
 import httpx
+import uvicorn
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+from starlette.responses import PlainTextResponse
+from starlette.types import Receive, Scope, Send
+
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
 from gramine_ratls.attest import write_ra_tls_key_and_crt
 
-async def fetch_website(
-    url: str,
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    headers = {
-        "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
-    }
-    async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return [types.TextContent(type="text", text=response.text)]
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+
+def get_drive_service():
+    creds = None
+    # token.json stores the user's access and refresh tokens
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    else:
+        # Run local browser auth
+        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+        creds = flow.run_local_server(port=0)
+        # Save the credentials
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    
+    return build('drive', 'v3', credentials=creds)
+
+def get_files(query, page_size=10):
+    service = get_drive_service()
+    results = service.files().list(
+        q=f"name contains '{query}'",
+        pageSize=page_size,
+        fields="files(id, name, mimeType, modifiedTime)"
+    ).execute()
+    items = results.get('files', [])
+    
+    return items
+
+
+def search_files(query, page_size=10):
+    files = get_files(query, page_size)
+    print('Files:')
+    final_str = ''
+    for file in files:
+        final_str = final_str + f"{file['name']}, "
+        print(f"{file['name']} (ID: {file['id']}, Type: {file['mimeType']})")
+    return { 'response': f"{len(files)} file(s) found: {final_str}"}
+
+def read_file(query, page_size=10):
+    files = get_files(query, page_size)
+    
+    if len(files) == 0:
+        return {'response': 'File not present'}
+
+    if len(files) > 1:
+        return {'response': 'More than one file present'}
+    
+    file_id = files[0]['id']
+    file_name = files[0]['name']
+    mime_type = files[0]['mimeType']
+    
+    service = get_drive_service()
+    
+    if mime_type == "application/vnd.google-apps.document":
+        # Google Doc → export as plain text
+        request = service.files().export_media(fileId=file_id, mimeType="text/plain")
+    elif mime_type == "text/plain":
+        # Plain text file
+        request = service.files().get_media(fileId=file_id)
+    else:
+        print(f"Unsupported file type: {mime_type}")
+        return
+
+    # 📥 Download to buffer
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+
+    buffer.seek(0)
+    content = buffer.read().decode("utf-8")
+    return { 'response': f"--- Contents of {file_name} ---\n{content}\n"}
 
 
 @click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option("--port", default=8000, help="Port to listen on for StreamableHTTP")
 @click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
+    "--isDev",
+    "isDev",
+    is_flag=True,
+    help="Is development mode on",
 )
-def main(port: int, transport: str) -> int:
-    key_file_path = "/app/tmp/key.pem"
-    crt_file_path = "/app/tmp/crt.pem"
-    write_ra_tls_key_and_crt(key_file_path, crt_file_path, format="pem")
+def main(port: int, isDev: bool) -> int:
+    if not isDev:
+        key_file_path = "/app/tmp/key.pem"
+        crt_file_path = "/app/tmp/crt.pem"
+        write_ra_tls_key_and_crt(key_file_path, crt_file_path, format="pem")
 
     app = Server("attestable-mcp-server")
 
     @app.call_tool()
-    async def fetch_tool(
+    async def search_tool(
         name: str, arguments: dict
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        if name != "fetch":
+        if "fileName" not in arguments:
+            raise ValueError("Missing required argument 'fileName'")
+        if name == "search":
+            return search_files(arguments["fileName"])
+        elif name == "read":
+            return read_file(arguments["fileName"])
+        else:
             raise ValueError(f"Unknown tool: {name}")
-        if "url" not in arguments:
-            raise ValueError("Missing required argument 'url'")
-        return await fetch_website(arguments["url"])
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
             types.Tool(
-                name="fetch",
-                description="Fetches a website and returns its content",
+                name="search",
+                description="Searches for file with FileName in Google Drive",
                 inputSchema={
                     "type": "object",
-                    "required": ["url"],
+                    "required": ["fileName"],
                     "properties": {
                         "url": {
                             "type": "string",
-                            "description": "URL to fetch",
+                            "description": "FileName to search",
+                        }
+                    },
+                },
+            ),
+            types.Tool(
+                name="read",
+                description="Read file with FileName in Google Drive",
+                inputSchema={
+                    "type": "object",
+                    "required": ["fileName"],
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "FileName to read",
                         }
                     },
                 },
             )
         ]
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from starlette.applications import Starlette
-        from starlette.routing import Mount, Route
+    # Create the session manager with true stateless mode
+    session_manager = StreamableHTTPSessionManager(
+        app=app,
+        event_store=None,
+        json_response=True,
+        stateless=True,
+    )
 
-        sse = SseServerTransport("/messages/")
+    async def handle_streamable_http(
+        scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        await session_manager.handle_request(scope, receive, send)
 
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        """Context manager for session manager."""
+        async with session_manager.run():
+            print("Application started with StreamableHTTP session manager!")
+            try:
+                yield
+            finally:
+                print("Application shutting down...")
 
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
+    # Create an ASGI application using the transport
+    starlette_app = Starlette(
+        debug=True,
+        routes=[
+            Mount("/mcp", app=handle_streamable_http),
+        ],
+        lifespan=lifespan,
+    )
 
-        import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port, workers=1, reload=False, ssl_keyfile=key_file_path, ssl_certfile=crt_file_path)
+    if isDev:
+        uvicorn.run(starlette_app, host="0.0.0.0", port=port, workers=1, reload=False)
     else:
-        from mcp.server.stdio import stdio_server
+        uvicorn.run(starlette_app, host="0.0.0.0", port=port, workers=1, reload=False, ssl_keyfile=key_file_path, ssl_certfile=crt_file_path)
 
-        async def arun():
-            async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
-
-        anyio.run(arun)
-
-    return 0
+if __name__ == "__main__":
+    main()
