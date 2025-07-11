@@ -22,10 +22,10 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
-
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 
-CMD ["fastapi", "dev", "--host", "0.0.0.0", "/app/src/attestable-mcp-server"]
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/.venv/lib/python3.13/site-packages:/app/src"
+
+CMD ["/usr/bin/python3", "/app/src/attestable_mcp_server/server.py"]
