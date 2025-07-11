@@ -35,6 +35,7 @@ dependencies = [
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
+    { name = "gramine-ratls" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "jinja2" },
@@ -64,6 +65,7 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.176.0" },
     { name = "google-auth", specifier = ">=2.40.3" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.2" },
+    { name = "gramine-ratls", specifier = ">=0.0.6" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "jinja2", specifier = ">=3.1.6" },
@@ -336,6 +338,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/39/24/33db22342cf4a2ea2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/86/f1/62a193f0227cf15a920390abe675f386dec35f7ae3ffe6da582d3ade42c7/googleapis_common_protos-1.70.0-py3-none-any.whl", hash = "sha256:b8bfcca8c25a2bb253e0e0b0adaf8c00773e5e6af6fd92397576680b807e0fd8", size = 294530, upload-time = "2025-04-14T10:17:01.271Z" },
 ]
+
+[[package]]
+name = "gramine-ratls"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/bd/629b60459e7ef2ca93f2fcf0d0692ca600745afb8ce25a1fc5eaff21a6b3/gramine_ratls-0.0.6.tar.gz", hash = "sha256:a0818b3dfae30a2bb28defa1efbed1c90db6555d1ce122db2d3cea1652556d4e", size = 17959, upload-time = "2024-10-01T10:11:38.716Z" }
 
 [[package]]
 name = "h11"

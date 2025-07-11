@@ -133,7 +133,7 @@ def main(port: int, isDev: bool) -> int:
                     "type": "object",
                     "required": ["fileName"],
                     "properties": {
-                        "url": {
+                        "fileName": {
                             "type": "string",
                             "description": "FileName to search",
                         }
@@ -147,7 +147,7 @@ def main(port: int, isDev: bool) -> int:
                     "type": "object",
                     "required": ["fileName"],
                     "properties": {
-                        "url": {
+                        "fileName": {
                             "type": "string",
                             "description": "FileName to read",
                         }
