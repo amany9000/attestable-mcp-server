@@ -1,12 +1,12 @@
 # ➡️ attestable-mcp-server
 <div align="center">
 
-<strong>remotely attestable MCP server</strong>
+<strong>Confidential MCP server</strong>
 </div>
 
 ## Overview
 
-This project contains a Confidential [MCP Server](https://spec.modelcontextprotocol.io/specification/2024-11-05/server/) running on [https://github.com/gramineproject/gramine](Gramine). 
+This project contains a Confidential [MCP Server](https://spec.modelcontextprotocol.io/specification/2024-11-05/server/) running on [Gramine](https://github.com/gramineproject/gramine). 
 
 Features: 
 - Gramine runs the MCP server in a secure TEE: Intel SGX, solving the issue of Data Leak/Privacy Leak on MCP Servers.
